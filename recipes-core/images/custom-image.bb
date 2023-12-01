@@ -26,4 +26,5 @@ python do_display_banner() {
 addtask display_banner before do_build
 
 # put our custom myapp
-IMAGE_INSTALL += "innohello"
+IMAGE_INSTALL += " innohello "
+IMAGE_INSTALL += " innobye "
