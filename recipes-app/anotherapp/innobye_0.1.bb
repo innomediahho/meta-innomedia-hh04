@@ -29,7 +29,7 @@ do_compile() {
 
 # Plant into the embedded system rootfs /usr/bin image
 do_install() {
-  oe_runmake install DESTDIR=${D} BINDDIR=${bindir}
+  oe_runmake install DESTDIR=${D} BINDIR=${bindir}
 }
 
 python do_display_banner() {
