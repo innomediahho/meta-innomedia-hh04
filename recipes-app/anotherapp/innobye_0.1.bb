@@ -6,8 +6,9 @@ LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/MIT;md5=0835ade698e0bcf8506ecda
 # Keeps getting checksum error pulling from GitHub so nerf it... (doesn't seem to work?)
 BB_STRICT_CHECKSUM = "0"
 
-# If local folder in 'src'
-# SRC_URI = "file://src"
+# If local folder in '..../anotherapp/src'
+#FILESEXTRAPATHS_prepend := "${THISDIR}/:"
+#SRC_URI = "file://src;protocol=file"
 
 
 # This pulls using git protocol but need to provide a source version
