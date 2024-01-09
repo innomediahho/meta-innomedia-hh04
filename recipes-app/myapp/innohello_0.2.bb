@@ -15,8 +15,9 @@ BB_STRICT_CHECKSUM = "0"
 # SRC_URI = "git://server.com/PATH/TO/ti-linux-kernel.git;protocol=https"
 ## SRC_URI = "git://github.com/innomediahho/innohellohh01.git;protocol=https"
 
-# If local folder in 'src'
-# SRC_URI = "file://src"
+# If local folder in '..../myapp/src'
+#FILESEXTRAPATHS_prepend := "${THISDIR}/:"
+#SRC_URI = "file://src;protocol=file"
 
 # This works but downloads from GitHub like a tar... Need to figure out how to make it work via git protocol
 #SRC_URI = "http://github.com/innomediahho/innohellohh01/archive/refs/heads/main.zip;protocol=http"
