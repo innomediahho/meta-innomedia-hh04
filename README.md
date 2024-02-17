@@ -1,2 +1,2 @@
-# meta-innomedia-hh01
-test yocto layer
+# meta-innomedia-hh04
+test Atom yocto layer
