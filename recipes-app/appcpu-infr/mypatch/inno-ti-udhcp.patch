@@ -1,0 +1,227 @@
+diff --git a/clientpacket.c b/clientpacket.c
+index d5f2f5d..5b7f068 100755
+--- a/clientpacket.c
++++ b/clientpacket.c
+@@ -144,6 +144,11 @@ static int add_requests(char msg_type, struct dhcpMessage *packet)
+             return -1;
+         }
+ 
++#ifdef CONFIG_VENDOR_INNOMEDIA_SMART_DQOS
++	packet->options[end + len] = DHCP_PKTCCAB_122;
++	len++;
++	packet->options[end+1]++;
++#endif
+ 	packet->options[end + len] = DHCP_END;
+ 	return 0;
+ }
+diff --git a/dhcpc.c b/dhcpc.c
+index 3982663..5f6cf43 100755
+--- a/dhcpc.c
++++ b/dhcpc.c
+@@ -111,6 +111,10 @@ static int handle_dhcp_info(udhcpc_client_state state, char msg_type,UDHCP_ERROR
+ static int listen_mode;
+ static void* ptr_plugin = NULL;
+ 
++#ifdef CONFIG_VENDOR_INNOMEDIA_SMART_DQOS
++char dhcps1[16], dhcps2[16], syslogs[16];
++#endif
++
+ #define ERT_DHCP4C_IPC_SVR_NAME         "/var/ipc-erouter0"
+ #define DHCP_MAX_DNS_SERVERS            8
+ #define MAX_DOMAIN_NAME_SIZE            256
+@@ -155,6 +159,13 @@ struct udhcp_client_config_t udhcp_client_config = {
+ 	backoff_time: 4,		
+ };
+ 
++#ifdef CONFIG_VENDOR_INNOMEDIA_SMART_DQOS
++// Unused? Need to comment out to compile successfuly
++//static unsigned char pktcPriDhcpSrvAddrV4[4] = {0x0,0x0,0x0,0x0};
++//static unsigned char pktcSecDhcpSrvAddrV4[4] = {0x0,0x0,0x0,0x0};
++static int           timeoffset=0xffffffff;
++#endif
++
+ unsigned long get_curr_server(void)
+ {
+     return server_addr;
+@@ -501,7 +512,11 @@ static int handle_plugin_options(char msg_type, struct dhcpMessage *packet)
+ 	int over = 0, done = 0, curr = OPTION_FIELD;
+ 	unsigned char option_code, option_len; 
+ 	int found, res;
+-	
++
++#ifdef CONFIG_VENDOR_INNOMEDIA_SMART_DQOS
++	timeoffset=0xffffffff;
++#endif
++
+ 	optionptr = packet->options;
+ 	i = 0;
+ 	length = CONFIG_TI_TIUDHCPC_MAX_OPTION_BUFSIZE;
+@@ -520,7 +535,50 @@ static int handle_plugin_options(char msg_type, struct dhcpMessage *packet)
+ 		}
+ 
+ 		switch (option_code) {
+-
++#ifdef CONFIG_VENDOR_INNOMEDIA_SMART_DQOS
++		case DHCP_PKTCCAB_122:
++			{
++				unsigned char *pDHCP_option = (unsigned char*)(optionptr + i);
++				int len = pDHCP_option[1];
++				strcpy(dhcps1, "0.0.0.0");
++				strcpy(dhcps2, "0.0.0.0");
++				if (len>1) pDHCP_option += 2;
++				while (pDHCP_option < (optionptr + i + len))
++				{
++					if (pDHCP_option[0]!=1 && pDHCP_option[0]!=2)
++					{
++						pDHCP_option += pDHCP_option[1] +2;
++					}
++					else if (pDHCP_option[0]==1 && pDHCP_option[1]==4)
++					{
++						memset(dhcps1, 0, sizeof(dhcps1));
++						sprintf(dhcps1, "%d.%d.%d.%d", pDHCP_option[2], pDHCP_option[3], pDHCP_option[4], pDHCP_option[5]);
++						pDHCP_option += pDHCP_option[1] + 2;
++					}
++					else if (pDHCP_option[0]==2 && pDHCP_option[1]==4)
++					{
++						memset(dhcps2, 0, sizeof(dhcps2));
++						sprintf(dhcps2, "%d.%d.%d.%d", pDHCP_option[2], pDHCP_option[3], pDHCP_option[4], pDHCP_option[5]);
++						pDHCP_option += pDHCP_option[1] + 2;
++					}
++				}
++				i += optionptr[OPT_LEN + i] + 2;
++			} //122
++		    	break;
++		case DHCP_LOG_SERVER:
++			{
++				memset(syslogs, 0, sizeof(syslogs));
++				sprintf(syslogs, "%d.%d.%d.%d", optionptr[i + OPT_DATA], optionptr[i + OPT_DATA + 1], optionptr[i + OPT_DATA + 2], optionptr[i + OPT_DATA + 3]);
++				i += optionptr[OPT_LEN + i] + 2;
++			} //syslog
++			break;
++		case DHCP_TIME_OFFSET:
++			{
++				timeoffset = ((optionptr[i+OPT_DATA]<<24) + (optionptr[i+OPT_DATA+1]<<16) + (optionptr[i+OPT_DATA+2]<<8) + (optionptr[i+OPT_DATA+3]));
++				i += optionptr[OPT_LEN + i] + 2;
++			}
++			break;
++#endif //#ifdef CONFIG_VENDOR_INNOMEDIA_SMART_DQOS
+ 		case DHCP_PADDING:
+ 			i++;
+ 			break;
+@@ -1499,6 +1557,33 @@ int main(int argc, char *argv[])
+ 							provision_attempt_count = 0;
+ 							udhcpc_stats.config_attempts=0;
+ 							change_mode(LISTEN_NONE);
++#ifdef CONFIG_VENDOR_INNOMEDIA_SMART_DQOS
++							int innosystemresult = system("innoreq mtaadmin 1");
++							if (strlen(dhcps1) && strlen(dhcps2) && !innosystemresult)
++							{
++								memset(temp_str, 0, sizeof(temp_str));
++								sprintf(temp_str, "innoreq dhcps %s %s", dhcps1, dhcps2);
++								LOG_UDHCPC_INFO("%s\n", temp_str);
++								if (system(temp_str))
++									LOG_UDHCPC_ERROR("system() command failed: %s", temp_str);
++							}
++							if (strlen(syslogs))
++							{
++								memset(temp_str, 0, sizeof(temp_str));
++								sprintf(temp_str, "innoreq syslog %s", syslogs);
++								LOG_UDHCPC_INFO("%s\n", temp_str);
++								if (system(temp_str))
++									LOG_UDHCPC_ERROR("system() command failed: %s", temp_str);
++							}
++							if (timeoffset != 0xffffffff)
++							{
++								memset(temp_str, 0, sizeof(temp_str));
++								sprintf(temp_str, "innoreq timeoffset %d", timeoffset);
++								LOG_UDHCPC_INFO("%s\n", temp_str);
++								if (system(temp_str))
++									LOG_UDHCPC_ERROR("system() command failed: %s", temp_str);
++							}
++#endif
+ 						}
+ 						else
+ 						{
+diff --git a/options.c b/options.c
+index 448ba53..380a12d 100755
+--- a/options.c
++++ b/options.c
+@@ -76,8 +76,12 @@ struct dhcp_option options[] = {
+ 	{"bootfile",	OPTION_STRING,				0x43},
+ #endif
+ 	{"timezone",	OPTION_STRING,				0x64},
++#ifdef CONFIG_VENDOR_INNOMEDIA_SMART_DQOS
++	{"pktc122",	OPTION_HEX |  OPTION_LIST | OPTION_REQ,	0x7a},
++#else
+     /* CableLab Client Configuration option 122 */
+     {"cablab",  OPTION_VARIABLE | OPTION_LIST,  0x7a},
++#endif //#ifdef CONFIG_VENDOR_INNOMEDIA_SMART_DQOS
+     /* V-I Vendor-specific Information option 125 */
+ 	{"vendor",	OPTION_VARIABLE | OPTION_LIST,  0x7d}, 
+ 
+@@ -96,6 +100,9 @@ int option_lengths[] = {
+ 	[OPTION_S16] =		2,
+ 	[OPTION_U32] =		4,
+ 	[OPTION_S32] =		4,
++#ifdef CONFIG_VENDOR_INNOMEDIA_SMART_DQOS
++	[OPTION_HEX] =		12,		//DHCP 122
++#endif
+     [OPTION_VARIABLE] =	1   /* added for Option 125 */
+ };
+ const int option_lengths_count = ARRAY_SIZE(option_lengths);
+diff --git a/options.h b/options.h
+index 17e3817..36e05dd 100755
+--- a/options.h
++++ b/options.h
+@@ -47,6 +47,9 @@ enum {
+ 	OPTION_S16,
+ 	OPTION_U32,
+ 	OPTION_S32,
++#ifdef CONFIG_VENDOR_INNOMEDIA_SMART_DQOS
++	OPTION_HEX,
++#endif
+     OPTION_VARIABLE
+ };
+ 
+diff --git a/script.c b/script.c
+index c8adeb3..2892df2 100755
+--- a/script.c
++++ b/script.c
+@@ -80,6 +80,9 @@ static int max_option_length[] = {
+ 	[OPTION_S16] =		sizeof("-32768 "),
+ 	[OPTION_U32] =		sizeof("4294967295 "),
+ 	[OPTION_S32] =		sizeof("-2147483684 "),
++#ifdef CONFIG_VENDOR_INNOMEDIA_SMART_DQOS
++	[OPTION_HEX] = 12,		//DHCP 122
++#endif
+     [OPTION_VARIABLE] =	1
+ };
+ static const unsigned int max_option_length_count = ARRAY_SIZE(max_option_length);
+@@ -219,6 +222,9 @@ static void fill_options(char *dest, size_t dest_size, unsigned char *option, st
+ 			dest += puma_ret;
+ 			break;
+ 		case OPTION_STRING:
++#ifdef CONFIG_VENDOR_INNOMEDIA_SMART_DQOS
++		case OPTION_HEX:		//DHCP 122
++#endif
+ 			if (puma_memcpy_s(dest, dest_size - (dest - dest_orig), option, len))
+ 			{
+ 				fprintf(stderr, "ERROR: %s:%d: " PUMA_SAFE_LIBC_ERROR(puma_memcpy_s), __func__, __LINE__);
+diff --git a/udhcp_packet.h b/udhcp_packet.h
+index 1173e7d..5d679c0 100755
+--- a/udhcp_packet.h
++++ b/udhcp_packet.h
+@@ -90,7 +90,13 @@
+ #define DHCP_T2			0x3b
+ #define DHCP_VENDOR		0x3c
+ #define DHCP_CLIENT_ID		0x3d
++#ifdef CONFIG_VENDOR_INNOMEDIA_SMART_DQOS
++#define DHCP_PKTCCAB_122        0x7a
++#define SUB_OPTION_1 1
++#define SUB_OPTION_2 2
++#else
+ #define DHCP_CABLAB_CLIENT_CONF 0x7a
++#endif //#ifdef CONFIG_VENDOR_INNOMEDIA_SMART_DQOS
+ #define DHCP_V_I_VENDOR_SPECIFIC_INFO 0x7d
+ 
+ #define DHCP_END		0xFF
